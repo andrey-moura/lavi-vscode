@@ -1,9 +1,6 @@
 name: Build & Release VS Code Extension
 
-on:
-  push:
-    tags:
-      - "*"
+on: push
 
 jobs:
   build:
@@ -16,18 +13,20 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 21
           cache: npm
 
       - name: Setup vsce
         run: npm install -g @vscode/vsce
 
+      - name: Setup vscode types
+        run: npm install --save-dev @types/vscode@1.95.0
+
       - name: Package VSIX
         run: vsce package --allow-missing-repository
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Generate artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: "*.vsix"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: andylang-vscode
+          path: "*.vsix"
