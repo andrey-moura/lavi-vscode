@@ -3,7 +3,7 @@
   "displayName": "andylang",
   "description": "This extensions provides syntax highlight, definitions navigation and build and run features for applications written in andy language.",
   "publisher": "andrey-moura",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "icon": "resources/andylang-vscode.png",
   "engines": {
     "vscode": "^1.95.0"
@@ -81,6 +81,7 @@
     "test": "vscode-test"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/mocha": "^10.0.9",
     "@types/node": "20.x",
     "@types/vscode": "^1.95.0",
