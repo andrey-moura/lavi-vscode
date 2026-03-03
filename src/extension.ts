@@ -9,19 +9,39 @@ import { once } from 'events';
 import { off } from 'process';
 import { buffer } from 'stream/consumers';
 
-class Location {
-	file: string;
+let output: vscode.OutputChannel;
+
+function log(message: string) {
+	if(!output) {
+		output = vscode.window.createOutputChannel('andy-analyzer');
+	}
+
+	var timestamp = new Date().toISOString();
+
+	output.appendLine(`[${timestamp}] ${message}`);
+}
+
+class SourceCodePosition {
 	line: number;
 	column: number;
 	offset: number;
-	length: number;
 
-	constructor(file: string, line: number, column: number, offset: number, length: number = 0) {
-		this.file = file;
+	constructor(line: number, column: number, offset: number) {
 		this.line = line;
 		this.column = column;
 		this.offset = offset;
-		this.length = length;
+	}
+}
+
+class Location {
+	file: string;
+	start: SourceCodePosition;
+	end: SourceCodePosition
+
+	constructor(file: string, start: SourceCodePosition, end: SourceCodePosition) {
+		this.file = file;
+		this.start = start;
+		this.end = end;
 	}
 }
 
@@ -102,147 +122,134 @@ class AnalyzerResult {
 };
 
 class AnalyzerServer {
-	private executable?: cp.ChildProcess;
-	private executablePath = 'andy-analyzer';
-	private isDebugMode: boolean; 
-	public onError?: (error: Error) => void;
 
 	constructor(
-		isDebugMode: boolean = false,
+
 	)
 	{
-		console.log(`Creating AnalyzerServer in ${isDebugMode ? 'debug' : 'release'} mode`)
-		this.isDebugMode = isDebugMode;
 
-		if (this.isDebugMode) {
-			this.executablePath = path.join(__dirname, '../..', 'andy-lang/build/andy-analyzer');
-			console.log(`andy-analyzer path: ${this.executablePath}`);
-		}
-	}
-
-	launch() {
-		const start = Date.now();
-
-		this.executable = cp.spawn(this.executablePath, ["--server"]);
-
-		if(!this.executable || !this.executable.pid) {
-			return false;
-		}
-
-		const end = Date.now();
-
-		console.log('andy-analyzer server started in ' + (end - start) + 'ms');
-
-		this.executable.on('close', (code) => {
-			this.throwErrorAtServer(`Exited with code ${code}`);
-		});
-
-		return true;
 	}
 
 	analyse(document: vscode.TextDocument) : AnalyzerResult {
 		if(document.languageId !== 'andy') {
-			console.log("anlyse cancel, not andy language");
+			log("anlyse cancel, not andy language");
 
 			return new AnalyzerResult([]);
 		}
 
-		const now = Date.now();
+		// extensionMode === vscode.ExtensionMode.Development;
+		var isDebugMode = true;
+		var analyzerPath = isDebugMode ? path.join(__dirname, '../..', 'andy-lang/build/andy-analyzer') : 'andy-analyzer';
+		log(`andy-analyzer path: ${analyzerPath}`);
+		log(`document: ${document.fileName}`);
+		var tempFileName = path.join(os.tmpdir(), document.fileName.substring(document.fileName.lastIndexOf(path.sep) + 1));
+		fs.writeFileSync(tempFileName, document.getText());
+		var tempOutputFileName = tempFileName + '.output';
+		var command= `${analyzerPath} ${document.fileName} --temp ${tempFileName} --out ${tempOutputFileName}`;
+		log(`executing command: ${command}`);
+		var process = cp.exec(command, (error, stdout, stderr) => {
+			if(error) {
+				log(`error executing command: ${error}`);
+				return;
+			}
+		});
 
-		const content = document.getText();
-
-		const tmpFileName = path.join(os.tmpdir(), document.fileName.substring(document.fileName.lastIndexOf(path.sep) + 1));
-
-		fs.writeFileSync(tmpFileName, content);
-
-		var command = [document.fileName, tmpFileName];
-
-		if(!this.writeCommand(command)) {
-			this.throwErrorAtServer('unable to write command');
+		if(!process || !process.pid) {
+			vscode.window.showErrorMessage('Unable to start analyzer server');
 			return new AnalyzerResult([]);
 		}
 
-		// Read 4 hexa bytes to get the size of the result
-		var len = this.executable?.stdout?.read(8);
+		log('waiting for file to exist...');
 
-		console.log(`len: ${len}`);
-
-		// Parses the size of the result
-		if(!len) {
-			this.throwErrorAtServer('unable to read size');
-			return new AnalyzerResult([]);
+		while(!fs.existsSync(tempOutputFileName)) {
+			log('file does not exist yet, waiting...');
+			// Todo: sleep
 		}
+	
+		var data = fs.readFileSync(tempOutputFileName);
 
-		const size = parseInt(len.toString(), 16);
-
-		var data = this.executable?.stdout?.read(size);
+		// log(`data: ${data}`);
+		log(`Read ${data.length} bytes from output file`);
 
 		try {
 			var result = JSON.parse(data.toString());
-		} catch(e) {
-			console.log(`error parsing JSON: ${e}`);
-			console.log(`data: ${data.toString()}`);
+		} catch (e) {
+			log(`error parsing JSON: ${e}`);
 			return new AnalyzerResult([]);
 		}
 
-		console.log(`${command} success in ${result.elapsed}`);
+		log('parsed data from output file');
+
+		const tokens = result.tokens ?? [];
+		const declarations = result.declarations ?? [];
+		const references = result.references ?? [];
+		const linter = result.linter ?? [];
+		const errors = result.errors ?? [];
+
+		log(`Converted data from JSON: tokens=${tokens.length}, declarations=${declarations.length}, references=${references.length}, linter=${linter.length}, errors=${errors.length}`);
 
 		const analyzerResult = new AnalyzerResult([]);
 
-		for(const token of result.tokens) {
-			const location = new Location(token.location.file, token.location.line, token.location.column, token.location.offset, token.location.length);
+		for(const token of tokens) {
+			// log(`token: ${JSON.stringify(token)}`);
+			const location = new Location(
+				token.location.file,
+				new SourceCodePosition(token.location.start.line, token.location.start.column, token.location.start.offset),
+				new SourceCodePosition(token.location.end.line, token.location.end.column, token.location.end.offset)
+			);
 
 			analyzerResult.tokens.push(new Token(token.type, token.modifier, location));
 		}
 		
-		for(const declaration of result.declarations) {
-			//console.log(`declaration: ${JSON.stringify(declaration)}`);
+		for(const declaration of declarations) {
+			// log(`declaration: ${JSON.stringify(declaration)}`);
 
-			const location = declaration.location ? new Location(declaration.location.file, declaration.location.line, declaration.location.column, declaration.location.offset) : null;
+			const location = declaration.location ? new Location(
+				declaration.location.file,
+				new SourceCodePosition(declaration.location.start.line, declaration.location.start.column, declaration.location.start.offset),
+				new SourceCodePosition(declaration.location.end.line, declaration.location.end.column, declaration.location.end.offset)
+			) : null;
 			analyzerResult.declarations.push(new Declaration(declaration.name, location, declaration.type));
 		}
 
-		for(const reference of result.references) {
-			//console.log(`reference: ${JSON.stringify(reference)}`);
+		for(const reference of references) {
+			// log(`reference: ${JSON.stringify(reference)}`);
 
-			const location = new Location(reference.location.file, reference.location.line, reference.location.column, reference.location.offset);
+			const location = new Location(
+				reference.location.file,
+				new SourceCodePosition(reference.location.start.line, reference.location.start.column, reference.location.start.offset),
+				new SourceCodePosition(reference.location.end.line, reference.location.end.column, reference.location.end.offset)
+			);
 
 			analyzerResult.references.push(new Reference(reference.name, reference.type, location));
 		}
 
-		for(const warning of result.linter) {
-			//console.log(`warning: ${JSON.stringify(warning)}`);
+		for(const warning of linter) {
+			// log(`warning: ${JSON.stringify(warning)}`);
 
-			const location = new Location(warning.location.file, warning.location.line, warning.location.column, warning.location.offset, warning.location.length);
+			const location = new Location(
+				warning.location.file,
+				new SourceCodePosition(warning.location.start.line, warning.location.start.column, warning.location.start.offset),
+				new SourceCodePosition(warning.location.end.line, warning.location.end.column, warning.location.end.offset)
+			);
 
 			analyzerResult.linter.push(new LinterWarning(warning.message, warning.type, location));
 		}
 
-		for(const error of result.errors) {
-			//console.log(`error: ${JSON.stringify(error)}`);
+		for(const error of errors) {
+			log(`error: ${JSON.stringify(error)}`);
 
-			const location = new Location(error.location.file, error.location.line, error.location.column, error.location.offset, error.location.length);
+			const location = new Location(
+				error.location.file,
+				new SourceCodePosition(error.location.start.line, error.location.start.column, error.location.start.offset),
+				new SourceCodePosition(error.location.end.line, error.location.end.column, error.location.end.offset)
+			);
 
 			analyzerResult.linterErrors.push(new LinterError(error.message, error.type, location));
 		}
 
+		log('converted data to AnalyzerResult');
 		return analyzerResult;
-	}
-
-	private throwErrorAtServer(message: string) {
-		if(this.onError) {
-			this.onError(new Error(message));
-		}
-	}
-
-	private writeCommand(command: Array<string>) : Boolean {
-		if(!this.executable?.stdin?.writable) {
-			this.throwErrorAtServer('stdin is not writable');
-			return false;
-		}
-
-		this.executable?.stdin?.write(command.join('\n') + '\n');
-		return true;
 	}
 };
 
@@ -258,7 +265,7 @@ class MyDefinitionProvider implements vscode.DefinitionProvider {
         position: vscode.Position,
         token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.Definition> {
-        //console.log('DefinitionProvider called');
+        //log('DefinitionProvider called');
 
         const wordRange = document.getWordRangeAtPosition(position);
 		
@@ -273,8 +280,8 @@ class MyDefinitionProvider implements vscode.DefinitionProvider {
 		for(const declaration of analyzerResult.declarations) {
 			if(declaration.name === word) {
 				if(declaration.location) {
-					const startPos = new vscode.Position(declaration.location.line, declaration.location.column);
-					const endPos = new vscode.Position(declaration.location.line, declaration.location.column + declaration.name.length);
+					const startPos = new vscode.Position(declaration.location.start.line, declaration.location.start.column);
+					const endPos = new vscode.Position(declaration.location.end.line, declaration.location.end.column);
 					const range = new vscode.Range(startPos, endPos);
 					const uri = vscode.Uri.file(declaration.location.file);
 					
@@ -308,49 +315,54 @@ const variableDecorationType = vscode.window.createTextEditorDecorationType({
 	textDecoration: 'none',
 });
 
+function publishDiagnostics(document: vscode.TextDocument, result: AnalyzerResult) {
+	const diagnostics: vscode.Diagnostic[] = [];
+
+	for (const err of result.linterErrors) {
+		if (err.location.file !== document.fileName) continue;
+
+		const range = new vscode.Range(
+			new vscode.Position(err.location.start.line, err.location.start.column),
+			new vscode.Position(err.location.end.line, err.location.end.column)
+		);
+
+		const diagnostic = new vscode.Diagnostic(
+			range,
+			err.message,
+			vscode.DiagnosticSeverity.Error
+		);
+
+		diagnostic.source = 'andy-analyzer';
+		diagnostics.push(diagnostic);
+	}
+
+	for (const warn of result.linter) {
+		if (warn.location.file !== document.fileName) continue;
+
+		const range = new vscode.Range(
+			new vscode.Position(warn.location.start.line, warn.location.start.column),
+			new vscode.Position(warn.location.end.line, warn.location.end.column)
+		);
+
+		const diagnostic = new vscode.Diagnostic(
+			range,
+			warn.message,
+			vscode.DiagnosticSeverity.Warning
+		);
+
+		diagnostic.source = 'andy-analyzer';
+		diagnostics.push(diagnostic);
+	}
+
+	diagnosticCollection.set(document.uri, diagnostics);
+}
+
 const diagnosticCollection = vscode.languages.createDiagnosticCollection('meuLinter');
-
-function updateDecorations(analyzerServer: AnalyzerServer) {
-	console.log('updateDecorations8...');
-
-
-};
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-	console.log('andy-analyzer extension activated 5');
-
-	var analyzerServer = new AnalyzerServer(context.extensionMode === vscode.ExtensionMode.Development);
-
-	var onError = (error: Error) => {
-
-		vscode.window.showErrorMessage(`${error.message}. The server will be restarted.`);
-
-		setTimeout(() => {
-			analyzerServer = new AnalyzerServer(context.extensionMode === vscode.ExtensionMode.Development);
-			analyzerServer.onError = onError;
-			analyzerServer.launch();
-		}, 3000);
-	};
-	
-	if(!analyzerServer.launch()) {
-		const message = "Unable to start analyzer server. Make sure andy-analyzer is installed and is in your PATH. If you have just installed it, you may need to restart Visual Studio Code or your computer.";
-		
-		vscode.window.showErrorMessage(message, 'Retry').then((value) => {
-			if(value === 'Retry') {
-				activate(context);
-			} else {
-				return;
-			}
-		});
-
-		return;
-	}
-	// Note: Error is only handled if the server could be started
-	analyzerServer.onError = onError;
-
-	console.log('andy-analyzer server started');
+	log('andy-analyzer extension activated 7');
 
 	const legend = new vscode.SemanticTokensLegend(
 		['class', 'function', 'variable', 'keyword', 'string', 'number', 'comment', 'boolean', 'constant', 'preprocessor'],
@@ -361,49 +373,35 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const provider: vscode.DocumentSemanticTokensProvider = {
 		async provideDocumentSemanticTokens(document: vscode.TextDocument): Promise<vscode.SemanticTokens> {
+			log('provideDocumentSemanticTokens called');
 			const builder = new vscode.SemanticTokensBuilder(legend);
+			var analyzerServer = new AnalyzerServer();
+			var result = analyzerServer.analyse(document);
 
-			var isDebugMode = context.extensionMode === vscode.ExtensionMode.Development;
-			var analyzerPath = isDebugMode ? path.join(__dirname, '../..', 'andy-lang/build/andy-analyzer') : 'andy-analyzer';
-			console.log(`andy-analyzer path: ${analyzerPath}`);
-			console.log(`document: ${document.fileName}`);
-			var process = cp.spawn(analyzerPath, [document.fileName, '--stdin']);
-
-			if(!process || !process.pid) {
-				vscode.window.showErrorMessage('Unable to start analyzer server');
-				return Promise.resolve(new vscode.SemanticTokens(new Uint32Array(0)));
-			}
-
-			process.stdin.write(document.getText());
-			process.stdin.end();
-
-			console.log('waiting for process to be readable');
-
-			await once(process.stdout, 'readable');
-
-			console.log('process is readable');
-
-			let chunk;
-			var data = "";
-			while(null !== (chunk = process.stdout.read())) {
-				data += chunk.toString();
-			}
-
-			console.log('read data from process');
-
-			data = data.toString();
-
-			console.log(`data: ${data}`);
-
-			var result = JSON.parse(data.toString());
-
-			console.log('parsed data from process');
+			// log(`result: ${JSON.stringify(result)}`);
 
 			for(const token of result.tokens) {
+				// log(`token: ${JSON.stringify(token)}`);
+				// log(`Document filename: ${document.fileName}`);
+
 				if(token.location.file == document.fileName) {
 					var location = token.location;
 					var start = location.start;
 					var end = location.end;
+
+					if(token.type == 'string') {
+						// For symbols (:test), the token generated is test, the range does not include the :,
+						// but for syntax highlighting we want to include the : as well. So we need to adjust
+						// the range to include the : if it exists.
+
+						// log('Found string token, checking for : at the beginning...');
+
+						const lineText = document.lineAt(start.line).text;
+						if(lineText[start.column - 1] === ':') {
+							// log('Found : at the beginning of the string token, adjusting range...');
+							start = new SourceCodePosition(start.line, start.column - 1, start.offset - 1);
+						}
+					}
 
 					builder.push(
 						new vscode.Range(new vscode.Position(start.line, start.column), new vscode.Position(end.line, end.column)),
@@ -413,7 +411,7 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 			}
 
-			console.log('pushed tokens to builder');
+			log('pushed tokens to builder');
 
 			// if(result.parser_errors.length > 0) {
 				// This result does not contain style for classes, functions and variables. Try to reuse the previous result.
@@ -428,6 +426,8 @@ export function activate(context: vscode.ExtensionContext) {
 
 			const built = builder.build();
 			tokenCache.set(document.fileName, built);
+
+			publishDiagnostics(document, result);
 			return built;
 		}
 	};
