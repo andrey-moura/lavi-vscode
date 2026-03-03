@@ -60,11 +60,13 @@ class Reference {
 	name: string;
 	type: string;
 	location: Location;
+    declaration?: Declaration;
 
-	constructor(name: string, type: string, location: any) {
+	constructor(name: string, type: string, location: any, declaration?: Declaration) {
 		this.name = name;
 		this.type = type;
 		this.location = location;
+		this.declaration = declaration;
 	}
 }
 
@@ -106,14 +108,12 @@ class Token {
 
 class AnalyzerResult {
 	tokens:       Token[];
-	declarations: Declaration[];
 	references:   Reference[];
 	linter:       LinterWarning[];
 	linterErrors: LinterError[];
 	
 
-	constructor(declarations: Declaration[], references: Reference[] = [], linter: LinterWarning[] = [], linterErrors: LinterError[] = []) {
-		this.declarations = [];
+	constructor(references: Reference[] = [], linter: LinterWarning[] = [], linterErrors: LinterError[] = []) {
 		this.linter = [];
 		this.tokens = [];
 		this.linterErrors = [];
@@ -181,12 +181,11 @@ class AnalyzerServer {
 		log('parsed data from output file');
 
 		const tokens = result.tokens ?? [];
-		const declarations = result.declarations ?? [];
 		const references = result.references ?? [];
 		const linter = result.linter ?? [];
 		const errors = result.errors ?? [];
 
-		log(`Converted data from JSON: tokens=${tokens.length}, declarations=${declarations.length}, references=${references.length}, linter=${linter.length}, errors=${errors.length}`);
+		log(`Converted data from JSON: tokens=${tokens.length}, references=${references.length}, linter=${linter.length}, errors=${errors.length}`);
 
 		const analyzerResult = new AnalyzerResult([]);
 
@@ -200,28 +199,31 @@ class AnalyzerServer {
 
 			analyzerResult.tokens.push(new Token(token.type, token.modifier, location));
 		}
-		
-		for(const declaration of declarations) {
-			// log(`declaration: ${JSON.stringify(declaration)}`);
-
-			const location = declaration.location ? new Location(
-				declaration.location.file,
-				new SourceCodePosition(declaration.location.start.line, declaration.location.start.column, declaration.location.start.offset),
-				new SourceCodePosition(declaration.location.end.line, declaration.location.end.column, declaration.location.end.offset)
-			) : null;
-			analyzerResult.declarations.push(new Declaration(declaration.name, location, declaration.type));
-		}
 
 		for(const reference of references) {
 			// log(`reference: ${JSON.stringify(reference)}`);
 
-			const location = new Location(
-				reference.location.file,
-				new SourceCodePosition(reference.location.start.line, reference.location.start.column, reference.location.start.offset),
-				new SourceCodePosition(reference.location.end.line, reference.location.end.column, reference.location.end.offset)
-			);
+            try {
+                const location = new Location(
+                    reference.location.file,
+                    new SourceCodePosition(reference.location.start.line, reference.location.start.column, reference.location.start.offset),
+                    new SourceCodePosition(reference.location.end.line, reference.location.end.column, reference.location.end.offset)
+                );
 
-			analyzerResult.references.push(new Reference(reference.name, reference.type, location));
+                const declaration = new Declaration(
+                    reference.declaration.name,
+                    new Location(
+                        reference.declaration.location.file,
+                        new SourceCodePosition(reference.declaration.location.start.line, reference.declaration.location.start.column, reference.declaration.location.start.offset),
+                        new SourceCodePosition(reference.declaration.location.end.line, reference.declaration.location.end.column, reference.declaration.location.end.offset)
+                    ),
+                    reference.declaration.type
+                );
+
+                analyzerResult.references.push(new Reference(reference.name, reference.type, location, declaration));
+            } catch (e) {
+                log(`Error processing reference '${reference.name}': ${e}`);
+            }
 		}
 
 		for(const warning of linter) {
@@ -237,7 +239,7 @@ class AnalyzerServer {
 		}
 
 		for(const error of errors) {
-			log(`error: ${JSON.stringify(error)}`);
+			// log(`error: ${JSON.stringify(error)}`);
 
 			const location = new Location(
 				error.location.file,
@@ -254,10 +256,7 @@ class AnalyzerServer {
 };
 
 class MyDefinitionProvider implements vscode.DefinitionProvider {
-	private analyzerServer: AnalyzerServer;
-
-    constructor(analyzerServer: AnalyzerServer) {
-		this.analyzerServer = analyzerServer;
+    constructor() {
     }
 
     provideDefinition(
@@ -265,39 +264,52 @@ class MyDefinitionProvider implements vscode.DefinitionProvider {
         position: vscode.Position,
         token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.Definition> {
-        //log('DefinitionProvider called');
+        log('provideDefinition called');
 
         const wordRange = document.getWordRangeAtPosition(position);
-		
+
         if (!wordRange) {
             return null;
         }
 
         const word = document.getText(wordRange);
 
-		var analyzerResult = this.analyzerServer.analyse(document);
+        var analyzerServer = new AnalyzerServer();
+        var analyzerResult = analyzerServer.analyse(document);
 
-		for(const declaration of analyzerResult.declarations) {
-			if(declaration.name === word) {
-				if(declaration.location) {
-					const startPos = new vscode.Position(declaration.location.start.line, declaration.location.start.column);
-					const endPos = new vscode.Position(declaration.location.end.line, declaration.location.end.column);
-					const range = new vscode.Range(startPos, endPos);
-					const uri = vscode.Uri.file(declaration.location.file);
-					
-					return new vscode.Location(uri, range);
-				}
-			}
-		}
+        log(`Searching for definition of word '${word}' at position ${document.fileName}:${position.line},${position.character} in ${analyzerResult.references.length} references`);
+
+        for(const reference of analyzerResult.references) {
+            if(reference.location.file !== document.fileName) {
+                // log(`Skipping declaration in different file: ${reference.location.file}`);
+                continue;
+            }
+
+            if(reference.location.start.line !== position.line) {
+                log(`Skipping declaration at different line: ${reference.location.start.line}`);
+                continue;
+            }
+
+            if(reference.location.start.column >= position.character && reference.location.end.column < position.character) {
+                log(`Skipping declaration at different column: ${reference.location.start.column}`);
+                continue;
+            }
+
+            if(!reference.declaration) {
+                log(`Skipping reference with no declaration: ${reference.name}`);
+                continue;
+            }
+
+            log(`Found matching declaration for word '${word}' at ${reference.location.file}:${reference.location.start.line},${reference.location.start.column} refers to declaration at ${reference.declaration.location?.file}:${reference.declaration.location?.start.line},${reference.declaration.location?.start.column}`);
+
+            const startPos = new vscode.Position(reference?.declaration?.location?.start.line ?? 0, reference?.declaration?.location?.start.column ?? 0);
+            const endPos = new vscode.Position(reference?.declaration?.location?.end.line ?? 0, reference?.declaration?.location?.end.column ?? 0);
+            const range = new vscode.Range(startPos, endPos);
+            const uri = vscode.Uri.file(reference?.declaration?.location?.file ?? '');
+            
+            return new vscode.Location(uri, range);
+        }
     }
-}
-
-function referenceRange(editor: vscode.TextEditor, reference: any, name: string) : vscode.Range{
-	const startPos = editor.document.positionAt(reference.offset);
-	const endPos = editor.document.positionAt(reference.offset + name.length);
-	const range = new vscode.Range(startPos, endPos);
-
-	return range;
 }
 
 const classDecorationType = vscode.window.createTextEditorDecorationType({
@@ -451,6 +463,10 @@ export function activate(context: vscode.ExtensionContext) {
 		provider,
 		legend
 	);
+
+	const definitionProvider = new MyDefinitionProvider();
+
+	vscode.languages.registerDefinitionProvider({ language: 'andy' }, definitionProvider);
 }
 
 // This method is called when your extension is deactivated
