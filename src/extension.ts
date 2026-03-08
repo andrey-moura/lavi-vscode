@@ -386,7 +386,7 @@ export function activate(context: vscode.ExtensionContext) {
 		['declaration', 'defaultLibrary']
 	);
 
-	const tokenCache = new Map<string, vscode.SemanticTokens>();
+	// const tokenCache = new Map<string, vscode.SemanticTokens>();
 
 	const provider: vscode.DocumentSemanticTokensProvider = {
 		async provideDocumentSemanticTokens(document: vscode.TextDocument): Promise<vscode.SemanticTokens> {
@@ -446,7 +446,7 @@ export function activate(context: vscode.ExtensionContext) {
 			// }
 
 			const built = builder.build();
-			tokenCache.set(document.fileName, built);
+			// tokenCache.set(document.fileName, built);
 
 			publishDiagnostics(document, result);
 			return built;
