@@ -145,6 +145,10 @@ class AnalyzerServer {
 		var tempFileName = path.join(os.tmpdir(), document.fileName.substring(document.fileName.lastIndexOf(path.sep) + 1));
 		fs.writeFileSync(tempFileName, document.getText());
 		var tempOutputFileName = tempFileName + '.output';
+		if(fs.existsSync(tempOutputFileName)) {
+			log(`Output file already exists, deleting: ${tempOutputFileName}`);
+			fs.unlinkSync(tempOutputFileName);
+		}
 		var command= `${analyzerPath} ${document.fileName} --temp ${tempFileName} --out ${tempOutputFileName}`;
 		log(`executing command: ${command}`);
 		var process = cp.exec(command, (error, stdout, stderr) => {
