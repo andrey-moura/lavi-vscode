@@ -151,15 +151,11 @@ class AnalyzerServer {
 		}
 		var command= `${analyzerPath} ${document.fileName} --temp ${tempFileName} --out ${tempOutputFileName}`;
 		log(`executing command: ${command}`);
-		var process = cp.exec(command, (error, stdout, stderr) => {
-			if(error) {
-				log(`error executing command: ${error}`);
-				return;
-			}
-		});
 
-		if(!process || !process.pid) {
-			vscode.window.showErrorMessage('Unable to start analyzer server');
+		try {
+			cp.execSync(command, { encoding: 'utf-8' });
+		} catch (e) {
+			vscode.window.showErrorMessage(`${e}`);
 			return new AnalyzerResult([]);
 		}
 
