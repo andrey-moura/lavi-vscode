@@ -10,6 +10,7 @@ import { off } from 'process';
 import { buffer } from 'stream/consumers';
 
 let output: vscode.OutputChannel;
+let isDebugMode: boolean;
 
 function log(message: string) {
 	if(!output) {
@@ -74,11 +75,13 @@ class LinterWarning {
 	message: string;
 	type: string;
 	location: Location;
+	tags: string;
 
-	constructor(message: string, type: string, location: any) {
+	constructor(message: string, type: string, location: any, tags: string = '') {
 		this.message = message;
 		this.type = type;
 		this.location = location;
+		this.tags = tags;
 	}
 }
 
@@ -138,7 +141,6 @@ class AnalyzerServer {
 		}
 
 		// extensionMode === vscode.ExtensionMode.Development;
-		var isDebugMode = true;
 		var analyzerPath = isDebugMode ? path.join(__dirname, '../..', 'andy-lang/build/andy-analyzer') : 'andy-analyzer';
 		log(`andy-analyzer path: ${analyzerPath}`);
 		log(`document: ${document.fileName}`);
@@ -228,15 +230,19 @@ class AnalyzerServer {
 		}
 
 		for(const warning of linter) {
-			// log(`warning: ${JSON.stringify(warning)}`);
+			log(`warning: ${JSON.stringify(warning)}`);
 
-			const location = new Location(
-				warning.location.file,
-				new SourceCodePosition(warning.location.start.line, warning.location.start.column, warning.location.start.offset),
-				new SourceCodePosition(warning.location.end.line, warning.location.end.column, warning.location.end.offset)
-			);
+			try {
+				const location = new Location(
+					warning.location.file,
+					new SourceCodePosition(warning.location.start.line, warning.location.start.column, warning.location.start.offset),
+					new SourceCodePosition(warning.location.end.line, warning.location.end.column, warning.location.end.offset),
+				);
 
-			analyzerResult.linter.push(new LinterWarning(warning.message, warning.type, location));
+				analyzerResult.linter.push(new LinterWarning(warning.message, warning.type, location, warning.tags));
+			} catch (e) {
+				log(`Error processing linter warning '${warning.message}': ${e}`);
+			}
 		}
 
 		for(const error of errors) {
@@ -328,9 +334,11 @@ const variableDecorationType = vscode.window.createTextEditorDecorationType({
 	textDecoration: 'none',
 });
 
+const diagnosticCollection = vscode.languages.createDiagnosticCollection('meuLinter');
+
 function publishDiagnostics(document: vscode.TextDocument, result: AnalyzerResult) {
 	const diagnostics: vscode.Diagnostic[] = [];
-
+	
 	for (const err of result.linterErrors) {
 		if (err.location.file !== document.fileName) continue;
 
@@ -350,6 +358,8 @@ function publishDiagnostics(document: vscode.TextDocument, result: AnalyzerResul
 	}
 
 	for (const warn of result.linter) {
+		log(`Processing linter warning for document ${document.fileName}: ${warn.message} at ${warn.location.file}:${warn.location.start.line},${warn.location.start.column}`);
+
 		if (warn.location.file !== document.fileName) continue;
 
 		const range = new vscode.Range(
@@ -359,9 +369,15 @@ function publishDiagnostics(document: vscode.TextDocument, result: AnalyzerResul
 
 		const diagnostic = new vscode.Diagnostic(
 			range,
-			warn.message,
-			vscode.DiagnosticSeverity.Warning
+			warn.message
 		);
+
+		if(warn.tags) {
+			if(warn.tags.includes('unreachable')) {
+				diagnostic.severity = vscode.DiagnosticSeverity.Hint;
+				diagnostic.tags = [vscode.DiagnosticTag.Unnecessary];
+			}
+		}
 
 		diagnostic.source = 'andy-analyzer';
 		diagnostics.push(diagnostic);
@@ -370,16 +386,16 @@ function publishDiagnostics(document: vscode.TextDocument, result: AnalyzerResul
 	diagnosticCollection.set(document.uri, diagnostics);
 }
 
-const diagnosticCollection = vscode.languages.createDiagnosticCollection('meuLinter');
-
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-	log('andy-analyzer extension activated 7');
+	isDebugMode = context.extensionMode === vscode.ExtensionMode.Development;
+
+	log('andy-analyzer extension activated 9');
 
 	const legend = new vscode.SemanticTokensLegend(
-		['class', 'function', 'variable', 'keyword', 'string', 'number', 'comment', 'boolean', 'constant', 'preprocessor'],
-		['declaration', 'defaultLibrary']
+		['class', 'function', 'variable', 'keyword', 'string', 'number', 'comment', 'preprocessor', 'macro'],
+		['declaration']
 	);
 
 	// const tokenCache = new Map<string, vscode.SemanticTokens>();
@@ -389,7 +405,7 @@ export function activate(context: vscode.ExtensionContext) {
 			log(`provideDocumentSemanticTokens for ${document.fileName}`);
 			const text = document.getText();
 			if(text.length < 100) {
-					log(text);
+				// log(text);
 			}
 			const builder = new vscode.SemanticTokensBuilder(legend);
 			var analyzerServer = new AnalyzerServer();
