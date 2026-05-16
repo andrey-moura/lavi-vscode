@@ -21,6 +21,9 @@ This extensions provides syntax highlight, definitions navigation and build and 
 
 ## Release Notes
 
+### 0.1.3
+Unreachable code color + better color for literals
+
 ### 0.1.2
 
 Use andy-analyzer
