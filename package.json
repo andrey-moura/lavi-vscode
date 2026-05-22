@@ -1,10 +1,10 @@
 {
-  "name": "andylang",
-  "displayName": "andylang",
-  "description": "This extensions provides syntax highlight, definitions navigation and build and run features for applications written in andy language.",
+  "name": "lavilang",
+  "displayName": "lavilang",
+  "description": "This extensions provides syntax highlight, definitions navigation and build and run features for applications written in lavi language.",
   "publisher": "andrey-moura",
   "version": "0.1.3",
-  "icon": "resources/andylang-vscode.png",
+  "icon": "resources/lavilang-vscode.png",
   "engines": {
     "vscode": "^1.95.0"
   },
@@ -15,31 +15,31 @@
   "contributes": {
     "languages": [
       {
-        "id": "andy",
+        "id": "lavi",
         "aliases": [
-          "andy",
-          "andy"
+          "lavi",
+          "lavi"
         ],
         "extensions": [
-          ".andy"
+          ".lv"
         ],
         "icon": {
-          "light": "resources/andy.light.png",
-          "dark": "resources/icon.dark.png"
+          "light": "resources/lavi.svg",
+          "dark": "resources/lavi.svg"
         },
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "andy",
-        "scopeName": "source.andy",
-        "path": "./syntaxes/andy.tmLanguage.json"
+        "language": "lavi",
+        "scopeName": "source.lavi",
+        "path": "./syntaxes/lavi.tmLanguage.json"
       }
     ],
     "debuggers": [
       {
-        "type": "andy",
+        "type": "lavi",
         "label": "Run",
         "configurationAttributes": {
           "launch": {
@@ -49,22 +49,38 @@
             "properties": {
               "program": {
                 "type": "string",
-                "description": "The path to the main Andy file to run.",
-                "default": "application.andy"
+                "description": "The path to the main Lavi file to run.",
+                "default": "application.lavi"
               }
             }
           }
         },
         "initialConfigurations": [
           {
-            "name": "Run Andy Program",
-            "type": "andy",
+            "name": "Run Lavi Program",
+            "type": "lavi",
             "request": "launch",
-            "program": "application.andy"
+            "program": "application.lavi"
           }
         ]
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "lavilang.run",
+        "title": "Run Lavi Program",
+        "icon": "$(play)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "lavilang.run",
+          "when": "editorLangId == lavi",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

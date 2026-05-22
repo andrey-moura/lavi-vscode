@@ -14,7 +14,7 @@ let isDebugMode: boolean;
 
 function log(message: string) {
 	if(!output) {
-		output = vscode.window.createOutputChannel('andy-analyzer');
+		output = vscode.window.createOutputChannel('lavi-analyzer');
 	}
 
 	var timestamp = new Date().toISOString();
@@ -134,15 +134,15 @@ class AnalyzerServer {
 	}
 
 	analyse(document: vscode.TextDocument) : AnalyzerResult {
-		if(document.languageId !== 'andy') {
-			log("anlyse cancel, not andy language");
+		if(document.languageId !== 'lavi') {
+			log("anlyse cancel, not lavi language");
 
 			return new AnalyzerResult([]);
 		}
 
 		// extensionMode === vscode.ExtensionMode.Development;
-		var analyzerPath = isDebugMode ? path.join(__dirname, '../..', 'andy-lang/build/andy-analyzer') : 'andy-analyzer';
-		log(`andy-analyzer path: ${analyzerPath}`);
+		var analyzerPath = isDebugMode ? path.join(__dirname, '../..', 'lavi/build/lavi-analyzer') : 'lavi-analyzer';
+		log(`lavi-analyzer path: ${analyzerPath}`);
 		log(`document: ${document.fileName}`);
 		var tempFileName = path.join(os.tmpdir(), document.fileName.substring(document.fileName.lastIndexOf(path.sep) + 1));
 		fs.writeFileSync(tempFileName, document.getText());
@@ -353,7 +353,7 @@ function publishDiagnostics(document: vscode.TextDocument, result: AnalyzerResul
 			vscode.DiagnosticSeverity.Error
 		);
 
-		diagnostic.source = 'andy-analyzer';
+		diagnostic.source = 'lavi-analyzer';
 		diagnostics.push(diagnostic);
 	}
 
@@ -379,7 +379,7 @@ function publishDiagnostics(document: vscode.TextDocument, result: AnalyzerResul
 			}
 		}
 
-		diagnostic.source = 'andy-analyzer';
+		diagnostic.source = 'lavi-analyzer';
 		diagnostics.push(diagnostic);
 	}
 
@@ -391,7 +391,29 @@ function publishDiagnostics(document: vscode.TextDocument, result: AnalyzerResul
 export function activate(context: vscode.ExtensionContext) {
 	isDebugMode = context.extensionMode === vscode.ExtensionMode.Development;
 
-	log('andy-analyzer extension activated 9');
+	log('lavi-analyzer extension activated 10');
+
+	const disposable = vscode.commands.registerCommand('lavilang.run', () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			vscode.window.showErrorMessage('No active editor found to run the program.');
+			return;
+		}
+
+		const document = editor.document;
+		const filePath = document.fileName;
+
+		const terminal = vscode.window.createTerminal("Lavi");
+		if(isDebugMode) {
+			var laviPath = path.join(__dirname, '../..', 'lavi-lang/build/lavi');
+			terminal.sendText(`${laviPath} ${filePath}`, true);
+		} else {
+			terminal.sendText(`lavi ${filePath}`, true);
+		}
+		terminal.show();
+	});
+
+	context.subscriptions.push(disposable);
 
 	const legend = new vscode.SemanticTokensLegend(
 		['class', 'function', 'variable', 'keyword', 'string', 'number', 'comment', 'preprocessor', 'macro'],
@@ -465,29 +487,29 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	};
 
-	class AndyDebugConfigurationProvider implements vscode.DebugConfigurationProvider {
+	class LaviDebugConfigurationProvider implements vscode.DebugConfigurationProvider {
 		resolveDebugConfiguration(
 			folder: vscode.WorkspaceFolder | undefined,
 			config: vscode.DebugConfiguration
 		): vscode.ProviderResult<vscode.DebugConfiguration> {
-			const program = config.program || 'application.andy';
+			const program = config.program || 'application.lavi';
 
-			const terminal = vscode.window.createTerminal("Andy");
-			terminal.sendText(`andy ${program}`);
+			const terminal = vscode.window.createTerminal("Lavi");
+			terminal.sendText(`lavi ${program}`);
 			terminal.show();
 			return null;
 		}
 	}
 
 	vscode.languages.registerDocumentSemanticTokensProvider(
-		{ language: 'andy' },
+		{ language: 'lavi' },
 		provider,
 		legend
 	);
 
 	const definitionProvider = new MyDefinitionProvider();
 
-	vscode.languages.registerDefinitionProvider({ language: 'andy' }, definitionProvider);
+	vscode.languages.registerDefinitionProvider({ language: 'lavi' }, definitionProvider);
 }
 
 // This method is called when your extension is deactivated

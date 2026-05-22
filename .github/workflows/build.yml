@@ -28,5 +28,5 @@ jobs:
       - name: Generate artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: andylang-vscode
+          name: lavi-vscode
           path: "*.vsix"
