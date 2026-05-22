@@ -3,7 +3,7 @@
   "displayName": "Lavi",
   "description": "This extensions provides syntax highlight, definitions navigation and build and run features for applications written in lavi language.",
   "publisher": "andrey-moura",
-  "version": "1.7.0",
+  "version": "0.1.4",
   "icon": "resources/lavi.png",
   "engines": {
     "vscode": "^1.95.0"
