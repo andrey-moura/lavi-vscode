@@ -1,6 +1,6 @@
-# andylang-vscode extension
+# lavi-vscode extension
 
-This extensions provides syntax highlight, definitions navigation and build and run features for applications written in andy language.
+This extensions provides syntax highlight, definitions navigation and build and run features for applications written in lavi language.
 
 ## Building
 ```sh
@@ -9,7 +9,7 @@ This extensions provides syntax highlight, definitions navigation and build and 
 
 ## Installing
 ```sh
-	code --install-extension andylang-0.1.2.vsix
+	code --install-extension lavi-0.1.2.vsix
 ```
 
 ## Dependencies
@@ -17,27 +17,4 @@ This extensions provides syntax highlight, definitions navigation and build and 
 	nvm use v21.1.0
 	npm install -g @vscode/vsce
 ```
-[andylang](https://github.com/andrey-moura/andy-lang)
-
-## Release Notes
-
-### 0.1.3
-Unreachable code color + better color for literals
-
-### 0.1.2
-
-Use andy-analyzer
-New language icons
-Several new styling
-
-### 0.1.1
-
-Use andylang-analyser instead of andylang-analyzer
-
-### 0.1.0
-
-First stable realease of andylang-vscode extension
-
-### 0.0.1
-
-Initial release of andylang-vscode extension
+[Lavi](https://github.com/andrey-moura/lavi)
